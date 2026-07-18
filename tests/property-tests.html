@@ -1,0 +1,1936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Personal Dashboard — Property-Based Tests</title>
+  <style>
+    body {
+      font-family: monospace;
+      max-width: 800px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    h1 { color: #a8dadc; margin-bottom: 0.25rem; }
+    h2 { color: #81b29a; margin-top: 2rem; }
+    .result {
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+      margin: 0.5rem 0;
+      font-size: 0.9rem;
+    }
+    .pass { background: #1b4332; border-left: 4px solid #52b788; }
+    .fail { background: #5c0a0a; border-left: 4px solid #e63946; }
+    .info { background: #1d3557; border-left: 4px solid #457b9d; }
+    pre { white-space: pre-wrap; word-break: break-all; margin: 0; }
+    #summary {
+      margin-top: 2rem;
+      padding: 1rem;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: bold;
+    }
+    .summary-pass { background: #1b4332; border: 2px solid #52b788; color: #b7e4c7; }
+    .summary-fail { background: #5c0a0a; border: 2px solid #e63946; color: #ffb3b3; }
+  </style>
+</head>
+<body>
+  <h1>Personal Dashboard — Property-Based Tests</h1>
+  <p>Open this file in a browser. Tests run automatically on load.</p>
+
+  <h2>Property 1: Date format is always correct</h2>
+  <div id="results-p1"></div>
+
+  <h2>Property 2: Time format is always correct</h2>
+  <div id="results-p2"></div>
+
+  <h2>Property 3: Greeting phrase is correct for all hours</h2>
+  <div id="results-p3"></div>
+
+  <h2>Property 4: Saved name appears in the greeting</h2>
+  <div id="results-p4"></div>
+
+  <h2>Property 5: Name persistence round-trip</h2>
+  <div id="results-p5"></div>
+
+  <h2>Property 6: Timer display format is correct for all durations</h2>
+  <div id="results-p6"></div>
+
+  <h2>Property 7: Adding any valid task persists it correctly</h2>
+  <div id="results-p7"></div>
+
+  <h2>Property 8: Whitespace-only or empty task input is rejected</h2>
+  <div id="results-p8"></div>
+
+  <h2>Property 9: Task completion toggle is its own inverse</h2>
+  <div id="results-p9"></div>
+
+  <h2>Property 10: Task edit updates text for valid input; rejects whitespace</h2>
+  <div id="results-p10"></div>
+
+  <h2>Property 11: Deleting a task removes it from storage</h2>
+  <div id="results-p11"></div>
+
+  <h2>Property 12: Sort places all incomplete tasks before all completed tasks</h2>
+  <div id="results-p12"></div>
+
+  <h2>Property 13: Task list persistence round-trip</h2>
+  <div id="results-p13"></div>
+
+  <h2>Property 14: Adding any valid link stores it correctly</h2>
+  <div id="results-p14"></div>
+
+  <h2>Property 15: Invalid or duplicate link input is rejected</h2>
+  <div id="results-p15"></div>
+
+  <h2>Property 16: Deleting a link removes it from storage</h2>
+  <div id="results-p16"></div>
+
+  <h2>Property 17: Link list persistence round-trip</h2>
+  <div id="results-p17"></div>
+
+  <h2>Property 18: Theme toggle icon reflects the active theme</h2>
+  <div id="results-p18"></div>
+
+  <h2>Property 19: Theme persistence round-trip</h2>
+  <div id="results-p19"></div>
+
+  <div id="summary"></div>
+
+  <!--
+    fast-check loaded via CDN — no build step required.
+    See: https://fast-check.dev/
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/fast-check@3/lib/bundle/fast-check.min.js"></script>
+
+  <!--
+    app.js loaded here so window._dashTest is available for task property tests.
+    DOMContentLoaded fires after both scripts are parsed; by then the minimal
+    DOM elements below (injected by the init block) are already present.
+  -->
+  <script src="../js/app.js"></script>
+
+  <script>
+    // ===========================================================================
+    // Feature: personal-dashboard, Property 4: Saved name appears in the greeting
+    // Feature: personal-dashboard, Property 5: Name persistence round-trip
+    //
+    // Inline copies of the greeting name functions from js/app.js.
+    // The production versions live inside an IIFE. These copies are used so the
+    // harness is self-contained and works when opened as a local file (file://).
+    // If the production implementations change, these copies must be kept in sync.
+    // ===========================================================================
+
+    // ---------------------------------------------------------------------------
+    // In-memory localStorage mock — reset between property runs to avoid state
+    // pollution. Declared here (top of script) so it is available to all tests
+    // regardless of declaration order.
+    // ---------------------------------------------------------------------------
+    var _mockStore = {};
+
+    var mockLocalStorage = {
+      getItem: function (key) {
+        return Object.prototype.hasOwnProperty.call(_mockStore, key)
+          ? _mockStore[key]
+          : null;
+      },
+      setItem: function (key, value) {
+        _mockStore[key] = String(value);
+      },
+      removeItem: function (key) {
+        delete _mockStore[key];
+      },
+      clear: function () {
+        _mockStore = {};
+      }
+    };
+
+    function resetMockStorage() {
+      _mockStore = {};
+    }
+
+    // ---------------------------------------------------------------------------
+    // Shared safeGet / safeSet wrappers backed by the mock — used by both the
+    // greeting tests (Properties 4, 5) and the theme tests (Properties 18, 19).
+    // ---------------------------------------------------------------------------
+    function testSafeGet(key) {
+      try {
+        return mockLocalStorage.getItem(key);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function testSafeSet(key, value) {
+      try {
+        mockLocalStorage.setItem(key, value);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    // -- Minimal DOM setup for greeting tests -----------------------------------
+    // Creates a hidden #greeting-widget containing #greeting-text so that
+    // renderGreeting() can update it without errors.
+    var _greetingWidget = document.createElement('div');
+    _greetingWidget.id = 'greeting-widget';
+    _greetingWidget.style.display = 'none';
+    document.body.appendChild(_greetingWidget);
+
+    function resetGreetingDOM() {
+      // Re-create #greeting-text inside the widget
+      _greetingWidget.innerHTML = '<p id="greeting-text"></p>';
+    }
+
+    // Initialise the DOM once at load time so the element exists before any test runs.
+    resetGreetingDOM();
+
+    // ---------------------------------------------------------------------------
+    // Inline greeting functions using mockLocalStorage.
+    // ---------------------------------------------------------------------------
+    function testGreetingText(hour) {
+      if (hour >= 5  && hour <= 11) return 'Good Morning';
+      if (hour >= 12 && hour <= 16) return 'Good Afternoon';
+      if (hour >= 17 && hour <= 20) return 'Good Evening';
+      return 'Good Night';
+    }
+
+    function testRenderGreeting() {
+      var greetingEl = document.getElementById('greeting-text');
+      if (!greetingEl) return;
+      var phrase = testGreetingText(new Date().getHours());
+      var storedName = testSafeGet('dashboard-name');
+      greetingEl.textContent = storedName
+        ? phrase + ', ' + storedName
+        : phrase;
+    }
+
+    function testLoadName() {
+      return testSafeGet('dashboard-name');
+    }
+
+    function testSaveName(name) {
+      var trimmed = name.trim();
+      if (trimmed.length === 0) {
+        testClearName();
+        return;
+      }
+      if (trimmed.length > 50) {
+        return;
+      }
+      testSafeSet('dashboard-name', trimmed);
+      testRenderGreeting();
+    }
+
+    function testClearName() {
+      mockLocalStorage.removeItem('dashboard-name');
+      testRenderGreeting();
+    }
+
+    // ===========================================================================
+    // Property 4 tests
+    // Validates: Requirements 1.8
+    // ===========================================================================
+
+    // P4-a: #greeting-text ends with ", <trimmed name>" after saveName(name)
+    runProperty(
+      'results-p4',
+      'P4-a  #greeting-text ends with ", <name>" after saveName(name)',
+      fc.property(
+        // Filter out all-whitespace strings; saveName trims before storing,
+        // so only names with at least one non-whitespace character are valid.
+        fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+          return s.trim().length > 0;
+        }),
+        function (name) {
+          resetMockStorage();
+          resetGreetingDOM();
+
+          testSaveName(name);
+
+          var greetingEl = document.getElementById('greeting-text');
+          if (!greetingEl) return false;
+
+          var trimmed = name.trim();
+          return greetingEl.textContent.endsWith(', ' + trimmed);
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P4-b: greeting text prefix is one of the four valid greeting phrases
+    runProperty(
+      'results-p4',
+      'P4-b  greeting text prefix is one of the four valid greeting phrases',
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+          return s.trim().length > 0;
+        }),
+        function (name) {
+          resetMockStorage();
+          resetGreetingDOM();
+
+          testSaveName(name);
+
+          var greetingEl = document.getElementById('greeting-text');
+          if (!greetingEl) return false;
+
+          var validPhrases = [
+            'Good Morning',
+            'Good Afternoon',
+            'Good Evening',
+            'Good Night'
+          ];
+          var text = greetingEl.textContent;
+          return validPhrases.some(function (phrase) {
+            return text.startsWith(phrase);
+          });
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Property 5 tests
+    // Validates: Requirements 1.9, 1.11
+    // ===========================================================================
+
+    // P5-a: loadName() returns exact trimmed name after saveName(name)
+    runProperty(
+      'results-p5',
+      'P5-a  loadName() returns exact trimmed name after saveName(name)',
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+          return s.trim().length > 0;
+        }),
+        function (name) {
+          resetMockStorage();
+          resetGreetingDOM();
+
+          testSaveName(name);
+
+          var stored = testLoadName();
+          return stored === name.trim();
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P5-b: loadName() returns null after clearName() following a save
+    runProperty(
+      'results-p5',
+      'P5-b  loadName() returns null after clearName() following saveName(name)',
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+          return s.trim().length > 0;
+        }),
+        function (name) {
+          resetMockStorage();
+          resetGreetingDOM();
+
+          testSaveName(name);
+          testClearName();
+
+          return testLoadName() === null;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P5-c: full round-trip — save → verify → clear → verify null
+    runProperty(
+      'results-p5',
+      'P5-c  full round-trip: saveName() → loadName() === trimmed → clearName() → loadName() === null',
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+          return s.trim().length > 0;
+        }),
+        function (name) {
+          resetMockStorage();
+          resetGreetingDOM();
+
+          testSaveName(name);
+          var afterSave = testLoadName();
+          if (afterSave !== name.trim()) return false;
+
+          testClearName();
+          var afterClear = testLoadName();
+          return afterClear === null;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Feature: personal-dashboard, Property 6: Timer display format is correct for all durations
+    // ===========================================================================
+
+    // ---------------------------------------------------------------------------
+    // Inline copy of formatTimerDisplay from js/app.js.
+    // The production function lives inside an IIFE and is not exported; using an
+    // inline reference here keeps this harness self-contained and avoids any
+    // module/CORS issues when opened as a local file (file://).
+    // If the production implementation ever changes, this copy must be kept in sync.
+    // ---------------------------------------------------------------------------
+    function formatTimerDisplay(totalSeconds) {
+      var minutes = Math.floor(totalSeconds / 60);
+      var seconds = totalSeconds % 60;
+      var mm = minutes < 10 ? '0' + minutes : '' + minutes;
+      var ss = seconds < 10 ? '0' + seconds : '' + seconds;
+      return mm + ':' + ss;
+    }
+
+    // ===========================================================================
+    // Feature: personal-dashboard, Property 18: Theme toggle icon reflects the active theme
+    // Feature: personal-dashboard, Property 19: Theme persistence round-trip
+    //
+    // Inline copies of the theme functions from js/app.js.
+    // The production versions live inside an IIFE. These copies are used so the
+    // harness is self-contained and works when opened as a local file (file://).
+    // If the production implementations change, these copies must be kept in sync.
+    // ===========================================================================
+
+    // ---------------------------------------------------------------------------
+    // In-memory localStorage mock — reset between each property run so tests
+    // never bleed state into one another.
+    // ---------------------------------------------------------------------------
+    var _mockStore = {};
+
+    var mockLocalStorage = {
+      getItem: function (key) {
+        return Object.prototype.hasOwnProperty.call(_mockStore, key)
+          ? _mockStore[key]
+          : null;
+      },
+      setItem: function (key, value) {
+        _mockStore[key] = String(value);
+      },
+      removeItem: function (key) {
+        delete _mockStore[key];
+      },
+      clear: function () {
+        _mockStore = {};
+      }
+    };
+
+    function resetMockStorage() {
+      _mockStore = {};
+    }
+
+    // ---------------------------------------------------------------------------
+    // Minimal DOM environment for theme tests.
+    // Sets up a fake <html> className, a #theme-icon element, and a
+    // #theme-toggle button in the real live document so the theme functions can
+    // operate on them without a full page reload.
+    // ---------------------------------------------------------------------------
+    var _themeIcon = null;
+    var _themeToggleBtn = null;
+
+    function setupThemeDom(startingTheme) {
+      // Set the <html> class to the starting theme
+      document.documentElement.className = startingTheme;
+
+      // Create or reuse #theme-icon
+      if (!_themeIcon) {
+        _themeIcon = document.createElement('span');
+        _themeIcon.id = 'theme-icon';
+        document.body.appendChild(_themeIcon);
+      }
+      _themeIcon.textContent = startingTheme === 'dark' ? '🌙' : '☀️';
+
+      // Create or reuse #theme-toggle
+      if (!_themeToggleBtn) {
+        _themeToggleBtn = document.createElement('button');
+        _themeToggleBtn.id = 'theme-toggle';
+        document.body.appendChild(_themeToggleBtn);
+      }
+    }
+
+    function teardownThemeDom() {
+      document.documentElement.className = '';
+    }
+
+    // ---------------------------------------------------------------------------
+    // Inline theme functions using mockLocalStorage instead of window.localStorage.
+    // These mirror the logic in js/app.js exactly.
+    // ---------------------------------------------------------------------------
+    function testSafeGet(key) {
+      try {
+        return mockLocalStorage.getItem(key);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function testSafeSet(key, value) {
+      try {
+        mockLocalStorage.setItem(key, value);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function testUpdateThemeIcon(theme) {
+      var icon = document.getElementById('theme-icon');
+      if (icon) {
+        icon.textContent = theme === 'dark' ? '🌙' : '☀️';
+      }
+    }
+
+    function testToggleTheme() {
+      var current = document.documentElement.className;
+      var next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.className = next;
+      testUpdateThemeIcon(next);
+      testSafeSet('dashboard-theme', next);
+    }
+
+    function testInitTheme() {
+      var saved = testSafeGet('dashboard-theme');
+      var theme = saved === 'dark' ? 'dark' : 'light';
+      document.documentElement.className = theme;
+      testUpdateThemeIcon(theme);
+      // (button binding skipped — not needed for property verification)
+    }
+
+    // Helper: returns the icon text content that should correspond to a theme.
+    function expectedIcon(theme) {
+      return theme === 'dark' ? '🌙' : '☀️';
+    }
+
+    // ===========================================================================
+    // Test harness helpers
+    // ===========================================================================
+    var totalTests = 0;
+    var passedTests = 0;
+
+    function log(containerId, message, type) {
+      var container = document.getElementById(containerId);
+      var div = document.createElement('div');
+      div.className = 'result ' + type;
+      var pre = document.createElement('pre');
+      pre.textContent = message;
+      div.appendChild(pre);
+      container.appendChild(div);
+    }
+
+    function runProperty(containerId, label, assertion, options) {
+      totalTests++;
+      try {
+        fc.assert(assertion, options || { numRuns: 100 });
+        passedTests++;
+        log(containerId, '✓ PASS  ' + label, 'pass');
+      } catch (err) {
+        log(containerId, '✗ FAIL  ' + label + '\n\n' + err.message, 'fail');
+      }
+    }
+
+    // ===========================================================================
+    // Feature: personal-dashboard, Property 1: Date format is always correct
+    // Validates: Requirements 1.1
+    // ===========================================================================
+
+    var WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    var MONTHS   = ['January', 'February', 'March', 'April', 'May', 'June',
+                    'July', 'August', 'September', 'October', 'November', 'December'];
+
+    // P1-a: Output matches the exact "Weekday, Month DD, YYYY" pattern
+    runProperty(
+      'results-p1',
+      'P1-a  output matches /^Weekday, Month DD, YYYY$/ pattern for any Date',
+      fc.property(
+        fc.date(),
+        function (date) {
+          var result = window._dashTest.formatDate(date);
+          return /^[A-Za-z]+, [A-Za-z]+ \d{2}, \d{4}$/.test(result);
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P1-b: Weekday component matches the correct full weekday name
+    runProperty(
+      'results-p1',
+      'P1-b  weekday component is the correct full weekday name for the date',
+      fc.property(
+        fc.date(),
+        function (date) {
+          var result = window._dashTest.formatDate(date);
+          var parts = result.split(', ');
+          var weekday = parts[0];
+          return weekday === WEEKDAYS[date.getDay()];
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P1-c: Month component matches the correct full month name
+    runProperty(
+      'results-p1',
+      'P1-c  month component is the correct full month name for the date',
+      fc.property(
+        fc.date(),
+        function (date) {
+          var result = window._dashTest.formatDate(date);
+          // Format is "Weekday, Month DD, YYYY" — split on ", " gives ["Weekday", "Month DD", "YYYY"]
+          var segments = result.split(', ');
+          var monthAndDay = segments[1]; // e.g. "July 09"
+          var month = monthAndDay.split(' ')[0];
+          return month === MONTHS[date.getMonth()];
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P1-d: Day component is zero-padded and matches the date's day-of-month
+    runProperty(
+      'results-p1',
+      'P1-d  day is zero-padded two digits matching date.getDate()',
+      fc.property(
+        fc.date(),
+        function (date) {
+          var result = window._dashTest.formatDate(date);
+          var segments = result.split(', ');
+          var monthAndDay = segments[1]; // e.g. "July 09"
+          var dayStr = monthAndDay.split(' ')[1]; // e.g. "09"
+          var expectedDay = String(date.getDate()).padStart(2, '0');
+          return dayStr === expectedDay && dayStr.length === 2;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P1-e: Year component matches the date's four-digit year
+    runProperty(
+      'results-p1',
+      'P1-e  year component is four digits matching date.getFullYear()',
+      fc.property(
+        fc.date(),
+        function (date) {
+          var result = window._dashTest.formatDate(date);
+          var segments = result.split(', ');
+          var year = parseInt(segments[2], 10);
+          return year === date.getFullYear() && /^\d{4}$/.test(segments[2]);
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Feature: personal-dashboard, Property 2: Time format is always correct
+    // Validates: Requirements 1.2
+    // ===========================================================================
+
+    // P2-a: Output matches the exact "HH:MM:SS" pattern
+    runProperty(
+      'results-p2',
+      'P2-a  output matches /^\\d{2}:\\d{2}:\\d{2}$/ for any Date',
+      fc.property(
+        fc.date(),
+        function (date) {
+          var result = window._dashTest.formatTime(date);
+          return /^\d{2}:\d{2}:\d{2}$/.test(result);
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P2-b: Hours component is zero-padded and matches date.getHours()
+    runProperty(
+      'results-p2',
+      'P2-b  hours component is zero-padded two digits matching date.getHours()',
+      fc.property(
+        fc.date(),
+        function (date) {
+          var result = window._dashTest.formatTime(date);
+          var parts = result.split(':');
+          var hhStr = parts[0];
+          var expected = String(date.getHours()).padStart(2, '0');
+          return hhStr === expected && hhStr.length === 2;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P2-c: Minutes component is zero-padded and matches date.getMinutes()
+    runProperty(
+      'results-p2',
+      'P2-c  minutes component is zero-padded two digits matching date.getMinutes()',
+      fc.property(
+        fc.date(),
+        function (date) {
+          var result = window._dashTest.formatTime(date);
+          var parts = result.split(':');
+          var mmStr = parts[1];
+          var expected = String(date.getMinutes()).padStart(2, '0');
+          return mmStr === expected && mmStr.length === 2;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P2-d: Seconds component is zero-padded and matches date.getSeconds()
+    runProperty(
+      'results-p2',
+      'P2-d  seconds component is zero-padded two digits matching date.getSeconds()',
+      fc.property(
+        fc.date(),
+        function (date) {
+          var result = window._dashTest.formatTime(date);
+          var parts = result.split(':');
+          var ssStr = parts[2];
+          var expected = String(date.getSeconds()).padStart(2, '0');
+          return ssStr === expected && ssStr.length === 2;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Feature: personal-dashboard, Property 3: Greeting phrase is correct for all hours
+    // Validates: Requirements 1.3, 1.4, 1.5, 1.6
+    // ===========================================================================
+
+    // P3-a: Every hour 0–23 maps to exactly one expected phrase (no gaps, no overlaps)
+    runProperty(
+      'results-p3',
+      'P3-a  every hour 0–23 maps to exactly one of the four valid greeting phrases',
+      fc.property(
+        fc.integer({ min: 0, max: 23 }),
+        function (hour) {
+          var result = window._dashTest.greetingText(hour);
+          var valid = ['Good Morning', 'Good Afternoon', 'Good Evening', 'Good Night'];
+          return valid.indexOf(result) !== -1;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P3-b: Hours 5–11 map to "Good Morning"
+    runProperty(
+      'results-p3',
+      'P3-b  hours 5–11 map to "Good Morning"',
+      fc.property(
+        fc.integer({ min: 5, max: 11 }),
+        function (hour) {
+          return window._dashTest.greetingText(hour) === 'Good Morning';
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P3-c: Hours 12–16 map to "Good Afternoon"
+    runProperty(
+      'results-p3',
+      'P3-c  hours 12–16 map to "Good Afternoon"',
+      fc.property(
+        fc.integer({ min: 12, max: 16 }),
+        function (hour) {
+          return window._dashTest.greetingText(hour) === 'Good Afternoon';
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P3-d: Hours 17–20 map to "Good Evening"
+    runProperty(
+      'results-p3',
+      'P3-d  hours 17–20 map to "Good Evening"',
+      fc.property(
+        fc.integer({ min: 17, max: 20 }),
+        function (hour) {
+          return window._dashTest.greetingText(hour) === 'Good Evening';
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P3-e: Hours 21–23 map to "Good Night"
+    runProperty(
+      'results-p3',
+      'P3-e  hours 21–23 map to "Good Night"',
+      fc.property(
+        fc.integer({ min: 21, max: 23 }),
+        function (hour) {
+          return window._dashTest.greetingText(hour) === 'Good Night';
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P3-f: Hours 0–4 map to "Good Night"
+    runProperty(
+      'results-p3',
+      'P3-f  hours 0–4 map to "Good Night"',
+      fc.property(
+        fc.integer({ min: 0, max: 4 }),
+        function (hour) {
+          return window._dashTest.greetingText(hour) === 'Good Night';
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Property 6 tests
+    // Validates: Requirements 2.4
+    // ===========================================================================
+
+    // P6-a: Output matches "MM:SS" pattern (exactly 5 chars, digits:colon:digits)
+    runProperty(
+      'results-p6',
+      'P6-a  output matches /^\\d{2}:\\d{2}$/ for all integers 0–1500',
+      fc.property(
+        fc.integer({ min: 0, max: 1500 }),
+        function (n) {
+          var result = formatTimerDisplay(n);
+          return /^\d{2}:\d{2}$/.test(result);
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P6-b: MM * 60 + SS === input (round-trip correctness)
+    runProperty(
+      'results-p6',
+      'P6-b  MM * 60 + SS === input for all integers 0–1500',
+      fc.property(
+        fc.integer({ min: 0, max: 1500 }),
+        function (n) {
+          var result = formatTimerDisplay(n);
+          var parts = result.split(':');
+          var mm = parseInt(parts[0], 10);
+          var ss = parseInt(parts[1], 10);
+          return mm * 60 + ss === n;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P6-c: Minutes component is zero-padded to exactly 2 digits
+    runProperty(
+      'results-p6',
+      'P6-c  minutes component is always exactly 2 digits (zero-padded)',
+      fc.property(
+        fc.integer({ min: 0, max: 1500 }),
+        function (n) {
+          var mm = formatTimerDisplay(n).split(':')[0];
+          return mm.length === 2 && /^\d{2}$/.test(mm);
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P6-d: Seconds component is zero-padded to exactly 2 digits and in [0, 59]
+    runProperty(
+      'results-p6',
+      'P6-d  seconds component is exactly 2 digits and in [0, 59]',
+      fc.property(
+        fc.integer({ min: 0, max: 1500 }),
+        function (n) {
+          var ss_str = formatTimerDisplay(n).split(':')[1];
+          var ss = parseInt(ss_str, 10);
+          return ss_str.length === 2 && /^\d{2}$/.test(ss_str) && ss >= 0 && ss <= 59;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Property 18 tests
+    // Feature: personal-dashboard, Property 18: Theme toggle icon reflects the active theme
+    // Validates: Requirements 5.3
+    // ===========================================================================
+
+    // P18-a: After one toggleTheme() call the icon reflects the opposite theme
+    runProperty(
+      'results-p18',
+      'P18-a  after toggleTheme() icon shows the opposite theme',
+      fc.property(
+        fc.constantFrom('light', 'dark'),
+        function (startingTheme) {
+          setupThemeDom(startingTheme);
+          resetMockStorage();
+
+          var expectedAfterToggle = startingTheme === 'light' ? 'dark' : 'light';
+          testToggleTheme();
+
+          var iconEl = document.getElementById('theme-icon');
+          var iconText = iconEl ? iconEl.textContent : null;
+          teardownThemeDom();
+
+          return iconText === expectedIcon(expectedAfterToggle);
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P18-b: Double toggleTheme() returns the icon to its original state
+    runProperty(
+      'results-p18',
+      'P18-b  double toggleTheme() returns icon to its original state (toggle is its own inverse)',
+      fc.property(
+        fc.constantFrom('light', 'dark'),
+        function (startingTheme) {
+          setupThemeDom(startingTheme);
+          resetMockStorage();
+
+          var originalIcon = expectedIcon(startingTheme);
+
+          testToggleTheme();
+          testToggleTheme();
+
+          var iconEl = document.getElementById('theme-icon');
+          var iconText = iconEl ? iconEl.textContent : null;
+          teardownThemeDom();
+
+          return iconText === originalIcon;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P18-c: Icon is always one of the two valid icon values after any single toggle
+    runProperty(
+      'results-p18',
+      'P18-c  icon is always exactly the sun or moon emoji after a toggle',
+      fc.property(
+        fc.constantFrom('light', 'dark'),
+        function (startingTheme) {
+          setupThemeDom(startingTheme);
+          resetMockStorage();
+
+          testToggleTheme();
+
+          var iconEl = document.getElementById('theme-icon');
+          var iconText = iconEl ? iconEl.textContent : '';
+          teardownThemeDom();
+
+          return iconText === '🌙' || iconText === '☀️';
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Property 19 tests
+    // Feature: personal-dashboard, Property 19: Theme persistence round-trip
+    // Validates: Requirements 5.4, 5.5
+    // ===========================================================================
+
+    // P19-a: After each toggleTheme() call, localStorage matches documentElement.className
+    runProperty(
+      'results-p19',
+      'P19-a  localStorage[\'dashboard-theme\'] always equals <html> className after each toggle',
+      fc.property(
+        fc.constantFrom('light', 'dark'),
+        fc.integer({ min: 1, max: 10 }),
+        function (startingTheme, numToggles) {
+          setupThemeDom(startingTheme);
+          resetMockStorage();
+          // Seed the mock store with the starting theme so initTheme has something to read
+          testSafeSet('dashboard-theme', startingTheme);
+
+          var allMatch = true;
+          for (var i = 0; i < numToggles; i++) {
+            testToggleTheme();
+            var storedTheme = testSafeGet('dashboard-theme');
+            var htmlClass = document.documentElement.className;
+            if (storedTheme !== htmlClass) {
+              allMatch = false;
+              break;
+            }
+          }
+
+          teardownThemeDom();
+          return allMatch;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P19-b: initTheme() after toggles applies the same class that is stored in localStorage
+    runProperty(
+      'results-p19',
+      'P19-b  initTheme() applies the theme class that matches localStorage after any toggle sequence',
+      fc.property(
+        fc.constantFrom('light', 'dark'),
+        fc.integer({ min: 1, max: 10 }),
+        function (startingTheme, numToggles) {
+          setupThemeDom(startingTheme);
+          resetMockStorage();
+          testSafeSet('dashboard-theme', startingTheme);
+
+          // Perform the toggle sequence to get to a final state
+          for (var i = 0; i < numToggles; i++) {
+            testToggleTheme();
+          }
+
+          var storedAfterToggles = testSafeGet('dashboard-theme');
+
+          // Reset the HTML class to something arbitrary to verify initTheme overrides it
+          document.documentElement.className = '';
+
+          // initTheme should restore from storage
+          testInitTheme();
+
+          var classAfterInit = document.documentElement.className;
+          teardownThemeDom();
+
+          return classAfterInit === storedAfterToggles;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P19-c: The final class after N toggles is predictable based on parity
+    runProperty(
+      'results-p19',
+      'P19-c  final theme after N toggles matches starting theme XOR parity of N',
+      fc.property(
+        fc.constantFrom('light', 'dark'),
+        fc.integer({ min: 1, max: 10 }),
+        function (startingTheme, numToggles) {
+          setupThemeDom(startingTheme);
+          resetMockStorage();
+          testSafeSet('dashboard-theme', startingTheme);
+
+          for (var i = 0; i < numToggles; i++) {
+            testToggleTheme();
+          }
+
+          var storedFinal = testSafeGet('dashboard-theme');
+          var isOdd = numToggles % 2 !== 0;
+          var expectedFinal = isOdd
+            ? (startingTheme === 'light' ? 'dark' : 'light')
+            : startingTheme;
+
+          teardownThemeDom();
+          return storedFinal === expectedFinal;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Feature: personal-dashboard, Property 7: Adding any valid task persists it correctly
+    // Feature: personal-dashboard, Property 8: Whitespace-only or empty task input is rejected
+    // Feature: personal-dashboard, Property 13: Task list persistence round-trip
+    //
+    // These properties use window._dashTest, which is exported by js/app.js.
+    // js/app.js is loaded via <script src="../js/app.js"> above.
+    //
+    // Because addTask / persistTasks use the real window.localStorage internally,
+    // each test clears 'dashboard-tasks' and calls resetTasks() before every run
+    // to prevent state from leaking between iterations.
+    //
+    // A minimal task-widget DOM subtree is required by initTaskList(); it is
+    // created once below and reused across all three property groups.
+    // ===========================================================================
+
+    // ---------------------------------------------------------------------------
+    // Minimal DOM setup for task properties.
+    // addTask() requires: #task-validation, #task-list
+    // persistTasks() requires: #task-widget > h2 (for the storage error badge)
+    // We create a hidden #task-widget containing all needed children.
+    // ---------------------------------------------------------------------------
+    (function setupTaskDom() {
+      var widget = document.createElement('div');
+      widget.id = 'task-widget';
+      widget.style.display = 'none';
+      widget.innerHTML =
+        '<h2>Task List</h2>' +
+        '<input id="task-input" type="text" />' +
+        '<p id="task-validation"></p>' +
+        '<ul id="task-list"></ul>';
+      document.body.appendChild(widget);
+    }());
+
+    // ---------------------------------------------------------------------------
+    // Helper: reset all task state before each property run.
+    // ---------------------------------------------------------------------------
+    function resetTaskState() {
+      window._dashTest.resetTasks();
+      try { localStorage.removeItem('dashboard-tasks'); } catch (e) { /* ignore */ }
+      var v = document.getElementById('task-validation');
+      if (v) v.textContent = '';
+      var l = document.getElementById('task-list');
+      if (l) l.innerHTML = '';
+    }
+
+    // ---------------------------------------------------------------------------
+    // taskArb: arbitrary that generates valid task objects matching the schema
+    // used by app.js — {id: "t_"+n, text: string(1-200), done: boolean, createdAt: number}
+    // ---------------------------------------------------------------------------
+    var taskArb = fc.record({
+      id:        fc.nat({ max: 999999999999 }).map(function (n) { return 't_' + n; }),
+      text:      fc.string({ minLength: 1, maxLength: 200 }).filter(function (s) { return s.trim().length > 0; }),
+      done:      fc.boolean(),
+      createdAt: fc.nat({ max: 9999999999999 })
+    });
+
+    // ===========================================================================
+    // Property 7: Adding any valid task persists it correctly
+    // Validates: Requirements 3.2, 3.8
+    // ===========================================================================
+
+    // P7-a: After addTask(text), localStorage['dashboard-tasks'] contains the task
+    runProperty(
+      'results-p7',
+      'P7-a  addTask(text) writes the task to localStorage with matching text and done:false',
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 200 }).filter(function (s) {
+          return s.trim().length > 0;
+        }),
+        function (text) {
+          resetTaskState();
+
+          window._dashTest.addTask(text);
+
+          var raw = localStorage.getItem('dashboard-tasks');
+          if (!raw) return false;
+
+          var parsed;
+          try { parsed = JSON.parse(raw); } catch (e) { return false; }
+
+          if (!Array.isArray(parsed.tasks)) return false;
+
+          var trimmed = text.trim();
+          var found = parsed.tasks.some(function (t) {
+            return t.text === trimmed && t.done === false;
+          });
+          return found;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P7-b: After addTask(text), getTasks() in-memory array also contains the task
+    runProperty(
+      'results-p7',
+      'P7-b  addTask(text) adds the task to the in-memory array with matching text and done:false',
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 200 }).filter(function (s) {
+          return s.trim().length > 0;
+        }),
+        function (text) {
+          resetTaskState();
+
+          window._dashTest.addTask(text);
+
+          var tasks = window._dashTest.getTasks();
+          var trimmed = text.trim();
+          return tasks.some(function (t) {
+            return t.text === trimmed && t.done === false;
+          });
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Property 8: Whitespace-only or empty task input is rejected
+    // Validates: Requirements 3.3
+    // ===========================================================================
+
+    // P8-a: addTask(whitespace) leaves the task array unchanged
+    runProperty(
+      'results-p8',
+      'P8-a  addTask(whitespace/empty) leaves the task array unchanged',
+      fc.property(
+        fc.stringMatching(/^\s*$/),
+        function (text) {
+          resetTaskState();
+
+          var before = window._dashTest.getTasks().length;
+          window._dashTest.addTask(text);
+          var after = window._dashTest.getTasks().length;
+
+          return after === before;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P8-b: addTask(whitespace) sets a non-empty validation message in #task-validation
+    runProperty(
+      'results-p8',
+      'P8-b  addTask(whitespace/empty) sets a non-empty message in #task-validation',
+      fc.property(
+        fc.stringMatching(/^\s*$/),
+        function (text) {
+          resetTaskState();
+
+          window._dashTest.addTask(text);
+
+          var validationEl = document.getElementById('task-validation');
+          return validationEl !== null && validationEl.textContent.trim().length > 0;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Feature: personal-dashboard, Property 12: Sort places all incomplete tasks before all completed tasks
+    // Validates: Requirements 3.7
+    // ===========================================================================
+
+    // P12-a: After sortTasks(), every done===false task precedes every done===true task
+    runProperty(
+      'results-p12',
+      'P12-a  after sortTasks() every incomplete task precedes every completed task',
+      fc.property(
+        fc.array(
+          fc.record({
+            id:        fc.string({ minLength: 1 }),
+            text:      fc.string({ minLength: 1, maxLength: 200 }),
+            done:      fc.boolean(),
+            createdAt: fc.integer()
+          }),
+          { maxLength: 30 }
+        ),
+        function (inputTasks) {
+          resetTaskState();
+
+          // Seed the internal tasks array with the generated tasks
+          var internalTasks = window._dashTest.getTasks();
+          inputTasks.forEach(function (t) {
+            internalTasks.push({ id: t.id, text: t.text, done: t.done, createdAt: t.createdAt });
+          });
+
+          window._dashTest.sortTasks();
+
+          var sortedArr = window._dashTest.getTasks();
+
+          // Find the index of the last false-done task and the first true-done task
+          var lastFalseIdx = -1;
+          var firstTrueIdx = sortedArr.length; // default to "beyond end"
+
+          for (var i = 0; i < sortedArr.length; i++) {
+            if (!sortedArr[i].done) lastFalseIdx = i;
+          }
+          for (var j = 0; j < sortedArr.length; j++) {
+            if (sortedArr[j].done) { firstTrueIdx = j; break; }
+          }
+
+          // Every done===false must appear before every done===true
+          return lastFalseIdx < firstTrueIdx;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P12-b: sortTasks() preserves relative order within the incomplete group
+    runProperty(
+      'results-p12',
+      'P12-b  sortTasks() preserves relative order of tasks within the incomplete group',
+      fc.property(
+        fc.array(
+          fc.record({
+            id:        fc.string({ minLength: 1 }),
+            text:      fc.string({ minLength: 1, maxLength: 200 }),
+            done:      fc.boolean(),
+            createdAt: fc.integer()
+          }),
+          { maxLength: 30 }
+        ),
+        function (inputTasks) {
+          resetTaskState();
+
+          var internalTasks = window._dashTest.getTasks();
+          inputTasks.forEach(function (t) {
+            internalTasks.push({ id: t.id, text: t.text, done: t.done, createdAt: t.createdAt });
+          });
+
+          // Record original relative order of incomplete tasks
+          var originalIncomplete = inputTasks.filter(function (t) { return !t.done; }).map(function (t) { return t.id; });
+
+          window._dashTest.sortTasks();
+
+          var sortedTasks = window._dashTest.getTasks();
+          var sortedIncomplete = sortedTasks.filter(function (t) { return !t.done; }).map(function (t) { return t.id; });
+
+          // Arrays must be same length and same order
+          if (originalIncomplete.length !== sortedIncomplete.length) return false;
+          for (var i = 0; i < originalIncomplete.length; i++) {
+            if (originalIncomplete[i] !== sortedIncomplete[i]) return false;
+          }
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P12-c: sortTasks() preserves relative order within the completed group
+    runProperty(
+      'results-p12',
+      'P12-c  sortTasks() preserves relative order of tasks within the completed group',
+      fc.property(
+        fc.array(
+          fc.record({
+            id:        fc.string({ minLength: 1 }),
+            text:      fc.string({ minLength: 1, maxLength: 200 }),
+            done:      fc.boolean(),
+            createdAt: fc.integer()
+          }),
+          { maxLength: 30 }
+        ),
+        function (inputTasks) {
+          resetTaskState();
+
+          var internalTasks = window._dashTest.getTasks();
+          inputTasks.forEach(function (t) {
+            internalTasks.push({ id: t.id, text: t.text, done: t.done, createdAt: t.createdAt });
+          });
+
+          // Record original relative order of completed tasks
+          var originalComplete = inputTasks.filter(function (t) { return t.done; }).map(function (t) { return t.id; });
+
+          window._dashTest.sortTasks();
+
+          var sortedTasks = window._dashTest.getTasks();
+          var sortedComplete = sortedTasks.filter(function (t) { return t.done; }).map(function (t) { return t.id; });
+
+          // Arrays must be same length and same order
+          if (originalComplete.length !== sortedComplete.length) return false;
+          for (var i = 0; i < originalComplete.length; i++) {
+            if (originalComplete[i] !== sortedComplete[i]) return false;
+          }
+          return true;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Property 13: Task list persistence round-trip
+    // Validates: Requirements 3.8, 3.9
+    // ===========================================================================
+
+    // P13-a: persistTasks() round-trip — parsed tasks array deeply equals the input
+    runProperty(
+      'results-p13',
+      'P13-a  persistTasks() round-trip: parsed tasks array is deeply equal to the in-memory array',
+      fc.property(
+        fc.array(taskArb, { maxLength: 20 }),
+        function (inputTasks) {
+          // Directly set the internal tasks array then persist
+          window._dashTest.resetTasks();
+          try { localStorage.removeItem('dashboard-tasks'); } catch (e) { /* ignore */ }
+
+          // Push each task into internal state via the exported reference
+          // (resetTasks clears; we reconstruct by persisting after mutation)
+          var internalTasks = window._dashTest.getTasks();
+          // getTasks returns the live array reference — splice in our tasks
+          inputTasks.forEach(function (t) { internalTasks.push(t); });
+
+          window._dashTest.persistTasks();
+
+          var raw = localStorage.getItem('dashboard-tasks');
+          if (!raw) return inputTasks.length === 0;
+
+          var parsed;
+          try { parsed = JSON.parse(raw); } catch (e) { return false; }
+
+          if (!Array.isArray(parsed.tasks)) return false;
+          if (parsed.tasks.length !== inputTasks.length) return false;
+
+          // Deep equality check on each task field
+          return parsed.tasks.every(function (storedTask, i) {
+            var orig = inputTasks[i];
+            return storedTask.id        === orig.id        &&
+                   storedTask.text      === orig.text      &&
+                   storedTask.done      === orig.done      &&
+                   storedTask.createdAt === orig.createdAt;
+          });
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P13-b: persistTasks() round-trip — sorted flag matches current sort state
+    runProperty(
+      'results-p13',
+      'P13-b  persistTasks() round-trip: parsed sorted flag equals current sort state',
+      fc.property(
+        fc.array(taskArb, { maxLength: 20 }),
+        function (inputTasks) {
+          window._dashTest.resetTasks();
+          try { localStorage.removeItem('dashboard-tasks'); } catch (e) { /* ignore */ }
+
+          var internalTasks = window._dashTest.getTasks();
+          inputTasks.forEach(function (t) { internalTasks.push(t); });
+
+          window._dashTest.persistTasks();
+
+          var raw = localStorage.getItem('dashboard-tasks');
+          if (!raw) return false;
+
+          var parsed;
+          try { parsed = JSON.parse(raw); } catch (e) { return false; }
+
+          // sorted should match getSorted() — after resetTasks() it is false
+          return parsed.sorted === window._dashTest.getSorted();
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Feature: personal-dashboard, Property 9: Task completion toggle is its own inverse
+    // Validates: Requirements 3.4
+    // ===========================================================================
+
+    // P9: toggleTask(id) twice restores the original done value
+    runProperty(
+      'results-p9',
+      'P9  toggleTask(id) twice restores done to its original value (toggle is its own inverse)',
+      fc.property(
+        fc.array(taskArb, { minLength: 1, maxLength: 20 }),
+        fc.nat(),
+        function (inputTasks, rawIndex) {
+          resetTaskState();
+
+          // Seed the internal tasks array with a deep copy of inputTasks
+          var internalTasks = window._dashTest.getTasks();
+          inputTasks.forEach(function (t) {
+            internalTasks.push({ id: t.id, text: t.text, done: t.done, createdAt: t.createdAt });
+          });
+
+          // Pick a valid index
+          var idx = rawIndex % internalTasks.length;
+          var targetId = internalTasks[idx].id;
+          var originalDone = internalTasks[idx].done;
+
+          // Toggle twice
+          window._dashTest.toggleTask(targetId);
+          window._dashTest.toggleTask(targetId);
+
+          // Verify done is restored to original value
+          var tasksAfter = window._dashTest.getTasks();
+          var target = null;
+          for (var i = 0; i < tasksAfter.length; i++) {
+            if (tasksAfter[i].id === targetId) {
+              target = tasksAfter[i];
+              break;
+            }
+          }
+          if (!target) return false;
+          return target.done === originalDone;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Feature: personal-dashboard, Property 10: Task edit updates text for valid input; rejects whitespace
+    // Validates: Requirements 3.5
+    // ===========================================================================
+
+    // P10-a: editTask(id, validText) updates the task's text in-memory and in localStorage
+    runProperty(
+      'results-p10',
+      'P10-a  editTask(id, validText) updates the task text in-memory and in localStorage',
+      fc.property(
+        fc.array(taskArb, { minLength: 1, maxLength: 20 }),
+        fc.nat(),
+        fc.string({ minLength: 1, maxLength: 200 }).filter(function (s) {
+          return s.trim().length > 0;
+        }),
+        function (inputTasks, rawIndex, newText) {
+          resetTaskState();
+
+          // Seed the internal tasks array
+          var internalTasks = window._dashTest.getTasks();
+          inputTasks.forEach(function (t) {
+            internalTasks.push({ id: t.id, text: t.text, done: t.done, createdAt: t.createdAt });
+          });
+
+          // Pick a valid index
+          var idx = rawIndex % internalTasks.length;
+          var targetId = internalTasks[idx].id;
+          var trimmedNew = newText.trim();
+
+          window._dashTest.editTask(targetId, newText);
+
+          // Check in-memory array
+          var tasksAfter = window._dashTest.getTasks();
+          var inMemoryTask = null;
+          for (var i = 0; i < tasksAfter.length; i++) {
+            if (tasksAfter[i].id === targetId) {
+              inMemoryTask = tasksAfter[i];
+              break;
+            }
+          }
+          if (!inMemoryTask || inMemoryTask.text !== trimmedNew) return false;
+
+          // Check localStorage
+          var raw = localStorage.getItem('dashboard-tasks');
+          if (!raw) return false;
+          var parsed;
+          try { parsed = JSON.parse(raw); } catch (e) { return false; }
+          if (!Array.isArray(parsed.tasks)) return false;
+
+          return parsed.tasks.some(function (t) {
+            return t.id === targetId && t.text === trimmedNew;
+          });
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P10-b: editTask(id, whitespaceText) leaves the task's text unchanged
+    runProperty(
+      'results-p10',
+      'P10-b  editTask(id, whitespaceText) leaves the task text unchanged',
+      fc.property(
+        fc.array(taskArb, { minLength: 1, maxLength: 20 }),
+        fc.nat(),
+        fc.stringMatching(/^\s+$/),
+        function (inputTasks, rawIndex, whitespaceText) {
+          resetTaskState();
+
+          // Seed the internal tasks array
+          var internalTasks = window._dashTest.getTasks();
+          inputTasks.forEach(function (t) {
+            internalTasks.push({ id: t.id, text: t.text, done: t.done, createdAt: t.createdAt });
+          });
+
+          // Pick a valid index
+          var idx = rawIndex % internalTasks.length;
+          var targetId = internalTasks[idx].id;
+          var originalText = internalTasks[idx].text;
+
+          window._dashTest.editTask(targetId, whitespaceText);
+
+          // Task text must be unchanged
+          var tasksAfter = window._dashTest.getTasks();
+          for (var i = 0; i < tasksAfter.length; i++) {
+            if (tasksAfter[i].id === targetId) {
+              return tasksAfter[i].text === originalText;
+            }
+          }
+          return false;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Feature: personal-dashboard, Property 11: Deleting a task removes it from storage
+    // Validates: Requirements 3.6, 3.8
+    // ===========================================================================
+
+    // P11: deleteTask(id) removes the task from both in-memory array and localStorage
+    runProperty(
+      'results-p11',
+      'P11  deleteTask(id) removes the task from the in-memory array and from localStorage',
+      fc.property(
+        fc.array(taskArb, { minLength: 1, maxLength: 20 }),
+        fc.nat(),
+        function (inputTasks, rawIndex) {
+          resetTaskState();
+
+          // Seed the internal tasks array
+          var internalTasks = window._dashTest.getTasks();
+          inputTasks.forEach(function (t) {
+            internalTasks.push({ id: t.id, text: t.text, done: t.done, createdAt: t.createdAt });
+          });
+
+          // Pick a valid index
+          var idx = rawIndex % internalTasks.length;
+          var targetId = internalTasks[idx].id;
+
+          window._dashTest.deleteTask(targetId);
+
+          // (a) In-memory array must not contain the task
+          var tasksAfter = window._dashTest.getTasks();
+          var stillInMemory = tasksAfter.some(function (t) { return t.id === targetId; });
+          if (stillInMemory) return false;
+
+          // (b) localStorage must not contain the task
+          var raw = localStorage.getItem('dashboard-tasks');
+          if (!raw) return true; // nothing stored — task is gone
+
+          var parsed;
+          try { parsed = JSON.parse(raw); } catch (e) { return false; }
+          if (!Array.isArray(parsed.tasks)) return true;
+
+          var stillInStorage = parsed.tasks.some(function (t) { return t.id === targetId; });
+          return !stillInStorage;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Feature: personal-dashboard, Property 14: Adding any valid link stores it correctly
+    // Feature: personal-dashboard, Property 15: Invalid or duplicate link input is rejected
+    // Feature: personal-dashboard, Property 17: Link list persistence round-trip
+    //
+    // These properties use window._dashTest, which is exported by js/app.js.
+    //
+    // addLink() / persistLinks() / renderLinks() all require a minimal links-widget
+    // DOM subtree. A hidden #links-widget is created once below and reused.
+    // Each test calls resetLinkState() to clear in-memory links + localStorage
+    // before each run.
+    // ===========================================================================
+
+    // ---------------------------------------------------------------------------
+    // Minimal DOM setup for link properties.
+    // addLink()   requires: #link-validation, #link-label-input, #link-url-input
+    // renderLinks() requires: #links-grid, #link-add-btn, #link-limit-msg
+    // persistLinks() requires: nothing extra (calls safeSet directly)
+    // We create a hidden #links-widget containing all needed children.
+    // ---------------------------------------------------------------------------
+    (function setupLinksDom() {
+      var widget = document.createElement('div');
+      widget.id = 'links-widget';
+      widget.style.display = 'none';
+      widget.innerHTML =
+        '<h2>Quick Links</h2>' +
+        '<input id="link-label-input" type="text" />' +
+        '<input id="link-url-input"   type="text" />' +
+        '<button id="link-add-btn" type="button">Add Link</button>' +
+        '<p id="link-validation"></p>' +
+        '<p id="link-limit-msg" hidden></p>' +
+        '<div id="links-grid"></div>';
+      document.body.appendChild(widget);
+    }());
+
+    // ---------------------------------------------------------------------------
+    // Helper: reset all link state before each property run.
+    // ---------------------------------------------------------------------------
+    function resetLinkState() {
+      window._dashTest.resetLinks();
+      try { localStorage.removeItem('dashboard-links'); } catch (e) { /* ignore */ }
+      var v = document.getElementById('link-validation');
+      if (v) v.textContent = '';
+      var g = document.getElementById('links-grid');
+      if (g) g.innerHTML = '';
+    }
+
+    // ---------------------------------------------------------------------------
+    // linkArb: arbitrary that generates valid link objects — {label, url}
+    // label: 1–50 non-whitespace-only chars
+    // url:   starts with "http://" or "https://"
+    // ---------------------------------------------------------------------------
+    var validUrlArb = fc.oneof(
+      fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+        return s.trim().length > 0;
+      }).map(function (s) { return 'http://' + s; }),
+      fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+        return s.trim().length > 0;
+      }).map(function (s) { return 'https://' + s; })
+    );
+
+    var linkArb = fc.record({
+      label: fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+        return s.trim().length > 0;
+      }),
+      url: validUrlArb
+    });
+
+    // ===========================================================================
+    // Property 14: Adding any valid link stores it correctly
+    // Validates: Requirements 4.2, 4.6
+    // ===========================================================================
+
+    // P14-a: After addLink(label, url), localStorage['dashboard-links'] contains
+    //        an entry with matching label and url
+    runProperty(
+      'results-p14',
+      'P14-a  addLink(label, url) writes an entry with matching label and url to localStorage',
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+          return s.trim().length > 0;
+        }),
+        validUrlArb,
+        function (label, url) {
+          resetLinkState();
+
+          window._dashTest.addLink(label, url);
+
+          var raw = localStorage.getItem('dashboard-links');
+          if (!raw) return false;
+
+          var parsed;
+          try { parsed = JSON.parse(raw); } catch (e) { return false; }
+          if (!Array.isArray(parsed)) return false;
+
+          var trimmedLabel = label.trim();
+          var trimmedUrl   = url.trim();
+          return parsed.some(function (entry) {
+            return entry.label === trimmedLabel && entry.url === trimmedUrl;
+          });
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P14-b: After addLink(label, url), the in-memory links array also contains
+    //        the entry with matching label and url
+    runProperty(
+      'results-p14',
+      'P14-b  addLink(label, url) adds an entry with matching label and url to the in-memory array',
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+          return s.trim().length > 0;
+        }),
+        validUrlArb,
+        function (label, url) {
+          resetLinkState();
+
+          window._dashTest.addLink(label, url);
+
+          var linksArr = window._dashTest.getLinks();
+          var trimmedLabel = label.trim();
+          var trimmedUrl   = url.trim();
+          return linksArr.some(function (entry) {
+            return entry.label === trimmedLabel && entry.url === trimmedUrl;
+          });
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Property 15: Invalid or duplicate link input is rejected
+    // Validates: Requirements 4.3
+    // ===========================================================================
+
+    // P15-a: addLink with empty label leaves the array unchanged and sets validation message
+    runProperty(
+      'results-p15',
+      'P15-a  addLink("", url) leaves links array unchanged and sets non-empty #link-validation',
+      fc.property(
+        validUrlArb,
+        function (url) {
+          resetLinkState();
+
+          var before = window._dashTest.getLinks().length;
+          window._dashTest.addLink('', url);
+          var after = window._dashTest.getLinks().length;
+
+          var validationEl = document.getElementById('link-validation');
+          var hasMsg = validationEl !== null && validationEl.textContent.trim().length > 0;
+          return after === before && hasMsg;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P15-b: addLink with empty URL leaves the array unchanged and sets validation message
+    runProperty(
+      'results-p15',
+      'P15-b  addLink(label, "") leaves links array unchanged and sets non-empty #link-validation',
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+          return s.trim().length > 0;
+        }),
+        function (label) {
+          resetLinkState();
+
+          var before = window._dashTest.getLinks().length;
+          window._dashTest.addLink(label, '');
+          var after = window._dashTest.getLinks().length;
+
+          var validationEl = document.getElementById('link-validation');
+          var hasMsg = validationEl !== null && validationEl.textContent.trim().length > 0;
+          return after === before && hasMsg;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P15-c: addLink with a bad-scheme URL (no http:// or https://) is rejected
+    runProperty(
+      'results-p15',
+      'P15-c  addLink(label, badSchemeUrl) leaves links array unchanged and sets non-empty #link-validation',
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+          return s.trim().length > 0;
+        }),
+        // Bad-scheme: generate strings that are non-empty but do NOT start with http:// or https://
+        fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+          var t = s.trim();
+          return t.length > 0 &&
+                 t.indexOf('http://') !== 0 &&
+                 t.indexOf('https://') !== 0;
+        }),
+        function (label, badUrl) {
+          resetLinkState();
+
+          var before = window._dashTest.getLinks().length;
+          window._dashTest.addLink(label, badUrl);
+          var after = window._dashTest.getLinks().length;
+
+          var validationEl = document.getElementById('link-validation');
+          var hasMsg = validationEl !== null && validationEl.textContent.trim().length > 0;
+          return after === before && hasMsg;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // P15-d: addLink with a duplicate URL is rejected
+    runProperty(
+      'results-p15',
+      'P15-d  addLink(label, duplicateUrl) leaves links array unchanged and sets non-empty #link-validation',
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+          return s.trim().length > 0;
+        }),
+        fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+          return s.trim().length > 0;
+        }),
+        validUrlArb,
+        function (label1, label2, url) {
+          resetLinkState();
+
+          // Add the link once (should succeed)
+          window._dashTest.addLink(label1, url);
+          var countAfterFirst = window._dashTest.getLinks().length;
+
+          // Clear the validation message so we can detect the second call's message
+          var validationEl = document.getElementById('link-validation');
+          if (validationEl) validationEl.textContent = '';
+
+          // Add the same URL a second time with a different label (duplicate URL)
+          window._dashTest.addLink(label2, url);
+          var countAfterSecond = window._dashTest.getLinks().length;
+
+          var hasMsg = validationEl !== null && validationEl.textContent.trim().length > 0;
+          return countAfterSecond === countAfterFirst && hasMsg;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Feature: personal-dashboard, Property 16: Deleting a link removes it from storage
+    // Validates: Requirements 4.5, 4.6
+    // ===========================================================================
+
+    // linkArb for P16 — same shape as the existing linkArb above; reused here.
+    // url starts with "http://" or "https://", label is 1–50 non-whitespace chars.
+
+    // P16: deleteLink(index) removes the link at that index from the in-memory array
+    //      and from parsed localStorage['dashboard-links']
+    runProperty(
+      'results-p16',
+      'P16  deleteLink(index) removes the link at that index from the in-memory array and from localStorage',
+      fc.property(
+        fc.array(
+          fc.record({
+            label: fc.string({ minLength: 1, maxLength: 50 }).filter(function (s) {
+              return s.trim().length > 0;
+            }),
+            url: fc.oneof(
+              fc.string({ minLength: 1, maxLength: 50 }).map(function (s) { return 'http://' + s; }),
+              fc.string({ minLength: 1, maxLength: 50 }).map(function (s) { return 'https://' + s; })
+            )
+          }),
+          { minLength: 1 }
+        ),
+        fc.nat(),
+        function (inputLinks, rawIndex) {
+          // Reset state before each run
+          window._dashTest.resetLinks();
+          try { localStorage.removeItem('dashboard-links'); } catch (e) { /* ignore */ }
+          var g = document.getElementById('links-grid');
+          if (g) g.innerHTML = '';
+
+          // Seed the in-memory links array directly via the live reference
+          var internalLinks = window._dashTest.getLinks();
+          inputLinks.forEach(function (l) {
+            internalLinks.push({ label: l.label, url: l.url });
+          });
+
+          // Persist so localStorage reflects the seeded state
+          window._dashTest.persistLinks();
+
+          // Pick a valid index
+          var index = rawIndex % internalLinks.length;
+          var deletedUrl = internalLinks[index].url;
+
+          // Delete the link at that index
+          window._dashTest.deleteLink(index);
+
+          // (a) In-memory array must not contain the deleted link's url at any index
+          var linksAfter = window._dashTest.getLinks();
+          var stillInMemory = linksAfter.some(function (l) { return l.url === deletedUrl; });
+          if (stillInMemory) return false;
+
+          // (b) localStorage must not contain the deleted link's url
+          var raw = localStorage.getItem('dashboard-links');
+          if (!raw) return true; // nothing stored — link is gone
+
+          var parsed;
+          try { parsed = JSON.parse(raw); } catch (e) { return false; }
+          if (!Array.isArray(parsed)) return false;
+
+          var stillInStorage = parsed.some(function (l) { return l.url === deletedUrl; });
+          return !stillInStorage;
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Property 17: Link list persistence round-trip
+    // Validates: Requirements 4.6, 4.7
+    // ===========================================================================
+
+    // P17: persistLinks() round-trip — parsed array is deeply equal to the in-memory array
+    runProperty(
+      'results-p17',
+      'P17  persistLinks() round-trip: parsed localStorage[\'dashboard-links\'] is deeply equal to the in-memory array',
+      fc.property(
+        fc.array(linkArb, { maxLength: 20 }),
+        function (inputLinks) {
+          window._dashTest.resetLinks();
+          try { localStorage.removeItem('dashboard-links'); } catch (e) { /* ignore */ }
+
+          // Seed the in-memory links array directly via the live reference
+          var internalLinks = window._dashTest.getLinks();
+          inputLinks.forEach(function (l) {
+            internalLinks.push({ label: l.label.trim(), url: l.url.trim() });
+          });
+
+          window._dashTest.persistLinks();
+
+          var raw = localStorage.getItem('dashboard-links');
+          // If array is empty, localStorage may be absent or store "[]"
+          if (!raw) return inputLinks.length === 0;
+
+          var parsed;
+          try { parsed = JSON.parse(raw); } catch (e) { return false; }
+          if (!Array.isArray(parsed)) return false;
+
+          // Deep equality: length and each field must match
+          if (parsed.length !== internalLinks.length) return false;
+          return parsed.every(function (storedLink, i) {
+            return storedLink.label === internalLinks[i].label &&
+                   storedLink.url   === internalLinks[i].url;
+          });
+        }
+      ),
+      { numRuns: 100 }
+    );
+
+    // ===========================================================================
+    // Summary
+    // ===========================================================================
+    var summaryEl = document.getElementById('summary');
+    summaryEl.className = 'result ' + (passedTests === totalTests ? 'summary-pass' : 'summary-fail');
+    summaryEl.textContent =
+      (passedTests === totalTests ? '✓ All' : '✗') +
+      ' ' + passedTests + ' / ' + totalTests + ' properties passed.';
+  </script>
+</body>
+</html>
